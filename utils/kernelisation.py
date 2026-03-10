@@ -47,13 +47,14 @@ class Kernel(Protocol[A]):
 class KernelDataset:
     labels: Optional[Integer[Array, "N"]] = None
 
-    def __init__(self, x_csv_path: str, y_csv_path: Optional[str] = None):
+    def __init__(self, x_csv_path: str, y_csv_path: Optional[str] = None, normalize:bool=False):
         pixel_data = np.array(pd.read_csv(x_csv_path, header=None, sep=',', usecols=range(3072)))
         self.images: Float[Array, "N 3 32 32"] = jnp.array(pixel_data, dtype=jnp.float32).reshape(-1, 3, 32, 32)
-        images = self.images.reshape(-1, 3, 1024)
-        mean = images.mean(axis=2, keepdims=True)
-        std  = images.std(axis=2, keepdims=True) + 1e-8
-        self.images = ((images - mean) / std).reshape(-1, 3, 32, 32)
+        if normalize:
+            images = self.images.reshape(-1, 3, 1024)
+            mean = images.mean(axis=2, keepdims=True)
+            std  = images.std(axis=2, keepdims=True) + 1e-8
+            self.images = ((images - mean) / std).reshape(-1, 3, 32, 32)
 
         if y_csv_path is not None:
             labels = np.array(pd.read_csv(y_csv_path, sep=',', usecols=[1])).squeeze()
@@ -70,11 +71,15 @@ class KernelDataset:
 class KernelDataLoader:
     def __init__(self, dataset: KernelDataset, kernel: Optional[Kernel] = None, 
                  batch_size: int = 64, shuffle: bool = True, max_size: Optional[int] = None):
+        if max_size is not None:
+            sub = KernelDataset.__new__(KernelDataset)
+            sub.images = dataset.images[:max_size]
+            sub.labels = dataset.labels[:max_size] if dataset.labels is not None else None
+            dataset = sub
         self.dataset = dataset
         self.kernel = kernel
         self.batch_size = batch_size
         self.shuffle = shuffle
-        self.max_size = max_size
 
     def split(self, test_size: float = 0.2, random_state: int = 42) -> tuple["KernelDataLoader", "KernelDataLoader"]:
         n = len(self.dataset)

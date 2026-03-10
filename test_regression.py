@@ -18,24 +18,25 @@ if __name__ == "__main__":
         sigma = float(jnp.sqrt(jnp.median(dists) / 2))
         print(f"Median heuristic sigma: {sigma:.2f}")
 
-    # kernel =  kernels.PolynomialKernel(degree=4, c=1.0) 
+    kernel =  kernels.PolynomialKernel(degree=3, c=1.0) 
     # kernel = kernels.LaplacianKernel(sigma=sigma)
     # kernel = kernels.GaussianKernel(sigma=sigma)
-    kernel = kernels.HistogramIntersectionKernel()
+    # kernel = kernels.HistogramIntersectionKernel()
     # kernel = kernels.ArcCosineKernel()
-    dataloader_full = KernelDataLoader(dataset_train, kernel, max_size=5000)
+    dataloader_full = KernelDataLoader(dataset_train, kernel, max_size=2000)
 
     clf = Classifier( dataloader_full)
     clf.fit()  # computes K_train, K_val once
 
-    lambdas = [0, 0.01, 0.1, 1.0, 10.0]
+    lambdas = [ 0.01, 0.1, 1.0, 10.0]
     for lam in lambdas:
         reg = classifiers.Regularizer(lam=lam)
         print(f"\n--- λ={lam} ---")
 
         for name, factory in [
-            ("KRR", lambda reg=reg: classifiers.KernelRidgeRegression(reg)),
-            ("KLR", lambda reg=reg: classifiers.KernelLogisticRegression(reg, n_iter=20)),
+            ("SVM", lambda reg=reg: classifiers.KernelSVM(reg, n_iter=100)),
+            # ("KRR", lambda reg=reg: classifiers.KernelRidgeRegression(reg)),
+            # ("KLR", lambda reg=reg: classifiers.KernelLogisticRegression(reg, n_iter=20)),
         ]:
             clf.strategy = OneVsAllStrategy(n_classes=10, model_factory=factory)
             clf.refit()  # only redoes the linear solve, not the kernel

@@ -26,10 +26,9 @@ class LinearKernel(Kernel):
         super().__init__(k)
         self.is_jax = True
 
-
 class HistogramIntersectionKernel(Kernel):
     def __init__(self):
-        k = lambda x, y: jnp.sum(jnp.minimum(x, y))
+        k = lambda x, y: jnp.sum(jnp.minimum(jnp.abs(x), jnp.abs(y)))
         super().__init__(k)
         self.is_jax = True
 
