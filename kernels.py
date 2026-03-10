@@ -1,39 +1,39 @@
 import jax.numpy as jnp
 from jaxtyping import Float, Array
-import utils
+from utils.kernelisation import Kernel
 
-class GaussianKernel(utils.Kernel):
+class GaussianKernel(Kernel):
     def __init__(self, sigma: float):
         k = lambda x, y: jnp.exp(-jnp.sum((x - y) ** 2) / (2 * sigma ** 2))
         super().__init__(k)
         self.is_jax = True
 
-class LaplacianKernel(utils.Kernel):
+class LaplacianKernel(Kernel):
     def __init__(self, sigma: float):
         k = lambda x, y: jnp.exp(-jnp.sum(jnp.abs(x - y)) / sigma)
         super().__init__(k)
         self.is_jax = True
 
-class PolynomialKernel(utils.Kernel):
+class PolynomialKernel(Kernel):
     def __init__(self, degree: int, c: float = 1.0):
         k = lambda x, y: (jnp.dot(x, y) / x.shape[0] + c) ** degree
         super().__init__(k)
         self.is_jax = True
 
-class LinearKernel(utils.Kernel):
+class LinearKernel(Kernel):
     def __init__(self):
         k = lambda x, y: jnp.dot(x,y)
         super().__init__(k)
         self.is_jax = True
 
 
-class HistogramIntersectionKernel(utils.Kernel):
+class HistogramIntersectionKernel(Kernel):
     def __init__(self):
         k = lambda x, y: jnp.sum(jnp.minimum(x, y))
         super().__init__(k)
         self.is_jax = True
 
-class ArcCosineKernel(utils.Kernel):
+class ArcCosineKernel(Kernel):
     def __init__(self):
         def k(x, y):
             nx, ny = jnp.linalg.norm(x), jnp.linalg.norm(y)
