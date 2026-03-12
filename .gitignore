@@ -1,3 +1,5 @@
 DM/
 *.csv
 *__pycache__
+*.png
+test_pictures.py

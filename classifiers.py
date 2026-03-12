@@ -2,12 +2,12 @@ from typing import Optional
 import jax.numpy as jnp
 from jax.nn import sigmoid
 from jaxtyping import Float, Array
-from utils.classification import RegressionModel, Regularizer
+from utils.classification import BinaryClassifier, Regularizer
 import osqp
 import scipy.sparse as sp
 import numpy as np
 
-class KernelSVM:
+class KernelSVM(BinaryClassifier):
     def __init__(self, regularizer: Regularizer, n_iter:int=100):
         self.lam = regularizer.lam
         self.alpha: Optional[Float[Array, "N"]] = None
@@ -18,7 +18,7 @@ class KernelSVM:
         y_np = np.array(y, dtype=np.float64)
         K_np = np.array(K, dtype=np.float64)
 
-        yKy = np.diag(y_np) @ K_np @ np.diag(y_np)
+        yKy = y_np[:, None] * K_np * y_np[None, :]
         P = sp.csc_matrix((1 / (2 * self.lam)) * yKy + 1e-8 * np.eye(n))
         q = -np.ones(n, dtype=np.float64)
         G = sp.csc_matrix(np.eye(n))
@@ -37,7 +37,7 @@ class KernelSVM:
             raise ValueError("Model not fitted yet.")
         return K_test @ self.alpha    
 
-class KernelRidgeRegression(RegressionModel):
+class KernelRidgeRegression(BinaryClassifier):
     def __init__(self, regularizer: Regularizer):
         self.lam = regularizer.lam
         self.alpha: Optional[Float[Array, "N C"]] = None
@@ -52,7 +52,7 @@ class KernelRidgeRegression(RegressionModel):
         return K_test @ self.alpha
 
 
-class KernelLogisticRegression(RegressionModel):
+class KernelLogisticRegression(BinaryClassifier):
     def __init__(self, regularizer: Regularizer, n_iter: int = 10):
         self.lam = regularizer.lam
         self.n_iter = n_iter
@@ -73,5 +73,5 @@ class KernelLogisticRegression(RegressionModel):
     def predict(self, K_test: Float[Array, "M N"]) -> Float[Array, "M"]:
         if self.alpha is None:
             raise ValueError("Model not fitted yet.")
-        return K_test @ self.alpha  # return raw scores, let OneVsAll do argmax
+        return K_test @ self.alpha  
 

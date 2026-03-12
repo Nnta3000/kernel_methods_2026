@@ -2,46 +2,88 @@ import jax.numpy as jnp
 import pandas as pd
 import numpy as np
 from jax import vmap, jit
+import jax.random as rd
 from jaxtyping import Float, Array, Integer
-from typing import Callable, List, Optional, Protocol, TypeVar
+from typing import Callable, List, Optional, Generic, TypeVar
 from tqdm import tqdm
 from sklearn.model_selection import train_test_split
-from dataclasses import dataclass
 
 A = TypeVar('A')
+R = TypeVar('R')
 
+class  KernelBase(Generic[A, R]):
+    k: Callable[[A, A], R]
 
-
-
-class Kernel(Protocol[A]):
-    def _null_kernel(_1: A, _2: A) -> float:
-        del _1, _2
-        return 0
-    k: Callable[[A, A], float] = _null_kernel
-    is_jax: bool=False
-    def __init__(self, k: Callable[[A, A], float], device='cpu', is_jax:bool=False) -> None:
-        self.k = k
-        self.is_jax = is_jax
-    def __call__(self, x: A, y: A) -> float:
+    def __call__(self, x: A, y: A) -> R:
         return self.k(x, y)
-    def to_tensor(self, X: List[A], Y: Optional[List[A]] = None) -> Float[Array, "N M"]:
-        if getattr(self, 'is_jax', False):
-            X_arr = jnp.array(X)
-            Y_arr = jnp.array(Y) if Y is not None else X_arr
-            return self.to_tensor_jax(X_arr, Y_arr)
+
+    def to_tensor(self, X: List[A], Y: Optional[List[A]])-> Float[Array, "N, M"]:
+        del X, Y
+        return jnp.ones((1, 1))
+
+class Kernel( KernelBase[A, float]):
+    def __init__(
+        self,
+        k: Callable[[A, A], float],
+    ) -> None:
+        self.k = k
+
+    def to_tensor(
+        self,
+        X: List[A],
+        Y: Optional[List[A]] = None
+    ) -> Float[Array, "N M"]:
         if Y is None:
             Y = X
-        return jnp.array([[self.k(e1, e2) for e1 in X] for e2 in tqdm(Y, desc="Building kernel matrix")])
-    def to_tensor_jax(self, X: Float[Array, "N D"], Y: Optional[Float[Array, "M D"]] = None) -> Float[Array, "N M"]:
-        """Should be call if the kernel is a pure JAX function"""
-        try:
+        return jnp.array([
+            [self.k(e1, e2) for e1 in X]
+            for e2 in tqdm(Y, desc="Building kernel matrix")
+        ])
+
+
+class JaxKernel( KernelBase[Float[Array, "N"], Float[Array, ""]]):
+    """Kernel where k is always a pure JAX function returning an Array."""
+    def __init__(
+        self,
+        k: Callable[[Float[Array, "N"], Float[Array, "N"]], Float[Array, "1"]]
+    ) -> None:
+        self.k = k
+
+    def to_tensor(
+            self,
+            X: Float[Array, "N D"],
+            Y: Optional[Float[Array, "M D"]] = None
+        ) -> Float[Array, "N M"]:
             k_jit = jit(self.k)
-            k_jit(X[0], X[0])
-        except Exception as e:
-            raise ValueError(f"self.k does not appear to be a pure JAX function: {e}")
+            if Y is None:
+                Y = X
+            return vmap(lambda y: vmap(lambda x: k_jit(x, y))(X))(Y)
+
+class NystromKernel(JaxKernel):
+    def __init__(self, base_kernel: JaxKernel, n_landmarks: int = 500):
+        self.base_kernel = base_kernel
+        self.n_landmarks = n_landmarks
+        self._landmarks: Optional[Float[Array, "M D"]] = None
+        self._K_mm_inv_sqrt: Optional[Float[Array, "M M"]] = None
+
+    def fit_landmarks(self, X: Float[Array, "N D"]) -> None:
+        idx = rd.choice(rd.PRNGKey(0), X.shape[0], (self.n_landmarks,), replace=False)
+        self._landmarks = X[idx]
+        K_mm = self.base_kernel.to_tensor(self._landmarks)
+        eigvals, eigvecs = jnp.linalg.eigh(K_mm)
+        eigvals = jnp.maximum(eigvals, 1e-8)
+        self._K_mm_inv_sqrt = eigvecs * (1.0 / jnp.sqrt(eigvals))
+
+    def to_tensor(self, X: Float[Array, "N D"], Y: Optional[Float[Array, "M D"]] = None) -> Float[Array, "N M"]:
+        if self._landmarks is None or self._K_mm_inv_sqrt is None:
+            raise ValueError("Landmarks not fit yet")
+        K_nm = self.base_kernel.to_tensor(X, self._landmarks).T
+        Z_n = K_nm @ self._K_mm_inv_sqrt
         if Y is None:
-            Y = X
-        return vmap(lambda y: vmap(lambda x: k_jit(x, y))(X))(Y)
+            return Z_n @ Z_n.T
+        K_ym = self.base_kernel.to_tensor(Y, self._landmarks).T
+        Z_y = K_ym @ self._K_mm_inv_sqrt
+        return Z_n @ Z_y.T
 
 
 class KernelDataset:
@@ -69,7 +111,7 @@ class KernelDataset:
 
 
 class KernelDataLoader:
-    def __init__(self, dataset: KernelDataset, kernel: Optional[Kernel] = None, 
+    def __init__(self, dataset: KernelDataset, kernel: Optional[JaxKernel] = None, 
                  batch_size: int = 64, shuffle: bool = True, max_size: Optional[int] = None):
         if max_size is not None:
             sub = KernelDataset.__new__(KernelDataset)
@@ -81,7 +123,14 @@ class KernelDataLoader:
         self.batch_size = batch_size
         self.shuffle = shuffle
 
+    def fit_kernel(self) -> None:
+        """Fit landmarks if kernel is Nystrom. No-op otherwise."""
+        if isinstance(self.kernel, NystromKernel):
+            images = self.dataset.images.reshape(-1, 3072)
+            self.kernel.fit_landmarks(images)
+
     def split(self, test_size: float = 0.2, random_state: int = 42) -> tuple["KernelDataLoader", "KernelDataLoader"]:
+        # Removed the NystromKernel guard — landmarks are fit after splitting now
         n = len(self.dataset)
         idx = jnp.arange(n)
         idx_train, idx_val = train_test_split(idx, test_size=test_size, random_state=random_state)
@@ -95,13 +144,16 @@ class KernelDataLoader:
 
         return subset(idx_train), subset(idx_val)
 
+
     def get_kernel_matrix(self, Y: Optional[Float[Array, "M D"]] = None) -> Float[Array, "N M"]:
         if self.kernel is None:
             raise ValueError("No kernel provided.")
+        if isinstance(self.kernel, NystromKernel) and self.kernel._landmarks is None:
+            raise ValueError(
+                "NystromKernel landmarks not fitted. Call fit_kernel() before get_kernel_matrix()."
+            )
         images = self.dataset.images.reshape(-1, 3072)
-        X = list(images)
-        Y_list = list(Y) if Y is not None else None
-        return self.kernel.to_tensor(X, Y_list)
+        return self.kernel.to_tensor(images, Y)
 
     def __iter__(self):
         n = len(self.dataset)
