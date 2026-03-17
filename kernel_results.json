@@ -1,0 +1,48 @@
+[
+  {
+    "kernel": "Anova",
+    "algo": "KRR",
+    "score": 0.08212500810623169,
+    "params": {
+      "lam": 1038.0172579606847,
+      "sigma": 2106.2248014082165
+    },
+    "fixed": {}
+  },
+  {
+    "kernel": "Poly2",
+    "algo": "KRR",
+    "score": -1.9139999970793724,
+    "params": {
+      "lam": 1.0
+    },
+    "fixed": {}
+  },
+  {
+    "kernel": "Poly3",
+    "algo": "KRR",
+    "score": -1.9139999970793724,
+    "params": {
+      "lam": 1.0
+    },
+    "fixed": {}
+  },
+  {
+    "kernel": "Histogram",
+    "algo": "KRR",
+    "score": 0.2970000207424164,
+    "params": {
+      "lam": 0.7340104937430488
+    },
+    "fixed": {}
+  },
+  {
+    "kernel": "Linear",
+    "algo": "KRR",
+    "score": 0.17000000178813934,
+    "params": {
+      "lam": 913.3276787992817
+    },
+    "fixed": {}
+  }
+]
